@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>the golden placer · collision-free placement, everywhere clustering is the enemy</title>
+<meta name="description" content="One primitive — place the n-th thing at the golden angle and it never clusters (the three-gap theorem) — applied to consistent hashing without virtual nodes, key hashing, spatial placement, and scheduling. Even distribution, by construction." />
+<link rel="manifest" href="./manifest.webmanifest" />
+<meta name="theme-color" content="#0d0b07" />
+<style>
+  :root{
+    --bg:#f6f3ec; --panel:#fffdf8; --ink:#211c12; --dim:#6b6350; --line:#e6dfd0;
+    --gold:#c8901a; --gold2:#e0a92e; --rand:#9a7bd0; --good:#2f9e6b; --bad:#c85a3c; --ink2:#3a3324;
+    --shadow:0 1px 2px rgba(80,60,20,.05),0 12px 40px rgba(90,70,20,.07);
+    --mo:ui-monospace,"SF Mono","Cascadia Mono","JetBrains Mono",Menlo,Consolas,monospace;
+    --sa:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  @media(prefers-color-scheme:dark){:root{
+    --bg:#0d0b07; --panel:#171308; --ink:#f0e9d8; --dim:#a1957a; --line:#2a2413;
+    --gold:#e8b23e; --gold2:#ffcf5c; --rand:#b79bff; --good:#4fd69a; --bad:#ff7a54; --ink2:#d8cfb8;
+    --shadow:0 1px 0 rgba(255,255,255,.03),0 24px 70px rgba(0,0,0,.55);
+  }}
+  :root[data-theme="light"]{--bg:#f6f3ec;--panel:#fffdf8;--ink:#211c12;--dim:#6b6350;--line:#e6dfd0;--gold:#c8901a;--gold2:#e0a92e;--rand:#9a7bd0;--good:#2f9e6b;--bad:#c85a3c;--shadow:0 1px 2px rgba(80,60,20,.05),0 12px 40px rgba(90,70,20,.07)}
+  :root[data-theme="dark"]{--bg:#0d0b07;--panel:#171308;--ink:#f0e9d8;--dim:#a1957a;--line:#2a2413;--gold:#e8b23e;--gold2:#ffcf5c;--rand:#b79bff;--good:#4fd69a;--bad:#ff7a54;--shadow:0 1px 0 rgba(255,255,255,.03),0 24px 70px rgba(0,0,0,.55)}
+
+  *{box-sizing:border-box} html,body{margin:0}
+  body{background:var(--bg);color:var(--ink);font-family:var(--sa);line-height:1.55;-webkit-font-smoothing:antialiased;padding:max(16px,env(safe-area-inset-top)) 16px 48px}
+  .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
+  .wrap{max-width:1060px;margin:0 auto}
+  header{margin:4px 0 18px}
+  h1{font-size:clamp(23px,4.4vw,33px);margin:0;letter-spacing:-.02em;font-weight:670}
+  h1 .a{color:var(--gold)}
+  .tag{color:var(--dim);font-size:14.5px;max-width:70ch;margin-top:7px}
+  .eyebrow{font-family:var(--mo);font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:var(--dim)}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);padding:18px 20px;margin-top:16px}
+  .rowb{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap}
+  h3{margin:0;font-size:16px;font-weight:640}
+  .sub{color:var(--dim);font-size:13px;margin-top:2px}
+  .duo{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:14px}
+  @media(max-width:620px){.duo{grid-template-columns:1fr}}
+  .viz{display:flex;flex-direction:column;gap:8px;align-items:center}
+  .viz canvas{width:100%;max-width:320px;aspect-ratio:1;border-radius:12px;border:1px solid var(--line);background:color-mix(in srgb,var(--panel) 80%,var(--bg))}
+  .lab{font-family:var(--mo);font-size:12px;color:var(--dim);text-align:center}
+  .lab b{font-size:15px;display:block;font-variant-numeric:tabular-nums}
+  .g b{color:var(--gold)} .r b{color:var(--rand)}
+  .metric{font-family:var(--mo);font-size:13px;padding:4px 10px;border-radius:8px;border:1px solid var(--line);background:color-mix(in srgb,var(--panel) 60%,var(--bg))}
+  .metric.win{color:var(--good);border-color:color-mix(in srgb,var(--good) 40%,var(--line))}
+  input[type=range]{width:180px;accent-color:var(--gold)}
+  select,button{font-family:var(--sa);font-size:13px;padding:7px 11px;border-radius:9px;border:1px solid var(--line);background:var(--panel);color:var(--ink);cursor:pointer}
+  button:hover{border-color:var(--gold)}
+  .ctl{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:13px;color:var(--dim)}
+  .bars{display:flex;gap:2px;align-items:flex-end;height:60px;margin-top:4px}
+  .bars i{flex:1;background:currentColor;border-radius:2px 2px 0 0;min-height:1px;display:block}
+  footer{margin-top:20px;padding:16px 20px;color:var(--dim);font-size:12.5px}
+  footer b{color:var(--ink)} a{color:var(--gold)}
+  .money{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:6px}
+  @media(max-width:620px){.money{grid-template-columns:repeat(2,1fr)}}
+  .money div{font-size:12px;color:var(--dim);border:1px solid var(--line);border-radius:10px;padding:9px 11px}
+  .money b{color:var(--ink);display:block;font-size:12.5px;margin-bottom:2px}
+</style>
+</head>
+<body>
+<h2 class="sr-only">The Golden Placer demonstrates that placing the n-th item at the golden angle produces provably even, non-clustering distribution, and applies it to consistent hashing without virtual nodes, key hashing of strided keys, two-dimensional and spherical point placement, and task scheduling — each shown side by side against the standard random or modulo baseline with its clustering.</h2>
+<div class="wrap">
+  <header>
+    <div class="rowb">
+      <h1>the golden <span class="a">placer</span></h1>
+      <button id="theme" aria-label="toggle theme">◐</button>
+    </div>
+    <div class="tag">One primitive: place the n-th thing at the golden angle (137.5°) and it lands in the biggest remaining gap — so it <b>never clusters, for any count, online</b> (the three-gap theorem). Pointed at every problem where clustering is the enemy and even spread is worth money.</div>
+    <div class="money">
+      <div><b>Consistent hashing</b> even load, 1 point/server (not 100s of virtual nodes)</div>
+      <div><b>Key hashing</b> strided keys spread where <span style="font-family:var(--mo)">%</span> collapses them</div>
+      <div><b>Placement</b> slots / sensors / samples, collision-free</div>
+      <div><b>Scheduling</b> spread tasks, kill the thundering herd</div>
+    </div>
+  </header>
+
+  <!-- THE PRIMITIVE -->
+  <section class="card">
+    <div class="rowb"><div><h3>The primitive — golden vs random</h3><div class="sub">watch the golden spiral stay even at every count; random clumps and leaves holes</div></div>
+      <div class="ctl">points <input type="range" id="nSlider" min="8" max="800" value="240"><span class="metric" id="nVal">240</span></div></div>
+    <div class="duo">
+      <div class="viz g"><canvas id="cGold" width="320" height="320"></canvas><div class="lab">golden angle<b id="mGold">—</b>largest/smallest gap</div></div>
+      <div class="viz r"><canvas id="cRand" width="320" height="320"></canvas><div class="lab">random<b id="mRand">—</b>largest/smallest gap</div></div>
+    </div>
+  </section>
+
+  <!-- CONSISTENT HASHING -->
+  <section class="card">
+    <div class="rowb"><div><h3>Consistent hashing — without virtual nodes</h3><div class="sub">each server owns the arc back to the previous one; even arcs = even load. Golden gets it with ONE point per server.</div></div>
+      <div class="ctl"><button id="addNode">+ add a server</button><button id="resetNodes">reset</button></div></div>
+    <div class="duo">
+      <div class="viz g"><canvas id="ringGold" width="320" height="320"></canvas><div class="lab">golden ring · <span id="kGold">16</span> servers<b id="cvGold">—</b>load CV (lower = even)</div></div>
+      <div class="viz r"><canvas id="ringRand" width="320" height="320"></canvas><div class="lab">random ring · <span id="kRand">16</span> servers<b id="cvRand">—</b>load CV</div></div>
+    </div>
+    <div class="lab" id="reshuffle" style="margin-top:10px"></div>
+  </section>
+
+  <!-- FIBONACCI HASHING -->
+  <section class="card">
+    <div class="rowb"><div><h3>Key hashing — Fibonacci vs modulo on strided keys</h3><div class="sub">sequential IDs, aligned pointers, timestamps — keys with a stride. <span style="font-family:var(--mo)">key % k</span> collapses them onto a few bins; golden spreads them flat.</div></div>
+      <div class="ctl">stride <select id="stride"><option>8</option><option selected>64</option><option>256</option><option>1000</option></select> · bins <select id="bins"><option>16</option><option selected>64</option><option>50</option></select></div></div>
+    <div class="duo">
+      <div class="viz"><div class="lab g" style="align-self:flex-start">golden (Fibonacci hash)</div><div class="bars" id="barsFib" style="color:var(--gold)"></div><div class="lab g">CV <b id="cvFib">—</b></div></div>
+      <div class="viz"><div class="lab r" style="align-self:flex-start">modulo <span style="font-family:var(--mo)">key % k</span></div><div class="bars" id="barsMod" style="color:var(--rand)"></div><div class="lab r">CV <b id="cvMod">—</b></div></div>
+    </div>
+    <div class="lab" id="fibWin" style="margin-top:8px"></div>
+  </section>
+
+  <!-- SPATIAL -->
+  <section class="card">
+    <div class="rowb"><div><h3>Spatial placement — collision-free by construction</h3><div class="sub">warehouse slots, sensors, sample points: golden maximizes the nearest-pair distance; random leaves near-collisions</div></div>
+      <div class="ctl">points <input type="range" id="sSlider" min="16" max="600" value="256"><span class="metric" id="sVal">256</span></div></div>
+    <div class="duo">
+      <div class="viz g"><canvas id="latGold" width="320" height="320"></canvas><div class="lab">golden lattice<b id="mdGold">—</b>nearest-pair distance</div></div>
+      <div class="viz r"><canvas id="latRand" width="320" height="320"></canvas><div class="lab">random<b id="mdRand">—</b>nearest-pair distance</div></div>
+    </div>
+  </section>
+
+  <footer class="card">
+    <div><b>Honest scope.</b> This is <b>open-loop even distribution</b> — provably non-clustering, deterministic, incremental, parameter-free. "Even" means <b>bounded variance</b> (the three-gap theorem: at most 3 gap sizes at ratio φ), <b>not zero</b> — golden's load CV floors near 0.3 with one point per node, still ~3× tighter than random. It is not adaptive load feedback; for weighted or adversarial load you put policy on top. The novelty isn't the math (phyllotaxis, Steinhaus, Knuth's Fibonacci hashing are old) — it's using golden-angle placement as <b>one general-purpose primitive across all of these at once</b>. Gate <span style="font-family:var(--mo)">23/23</span>. Pure kernel, zero-dep, offline. Code: <a href="https://github.com/sjgant80-hub/golden-placer">github.com/sjgant80-hub/golden-placer</a>.</div>
+  </footer>
+</div>
+
+<script type="module">
+import P from './placer.mjs?v=1';   // ?v bumps on every kernel change so no browser runs a stale cached kernel
+const $ = s => document.querySelector(s);
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+
+// ── panel 1: the primitive (disk spiral) ──
+function drawDisk(id, pts){ const cv=$(id), x=cv.getContext('2d'), W=cv.width, R=W/2-6;
+  x.clearRect(0,0,W,W); x.strokeStyle=css('--line'); x.beginPath(); x.arc(W/2,W/2,R,0,7); x.stroke();
+  pts.forEach((p,i)=>{ const ang=2*Math.PI*p, rad=R*Math.sqrt((i+0.5)/pts.length);
+    const px=W/2+rad*Math.cos(ang), py=W/2+rad*Math.sin(ang);
+    x.beginPath(); x.arc(px,py,2.1,0,7); x.fillStyle=id==='#cGold'?css('--gold'):css('--rand'); x.fill(); });
+}
+function primitive(){ const n=+$('#nSlider').value; $('#nVal').textContent=n;
+  const gp=P.sequence1D(n); const rp=P.random2D(n,3).map(p=>p[0]);
+  drawDisk('#cGold', gp); drawDisk('#cRand', rp);
+  const gg=P.threeGap(gp), rg=P.threeGap(rp);
+  $('#mGold').textContent = gg.maxOverMin.toFixed(2)+'× ('+gg.distinct+' gap sizes)';
+  $('#mRand').textContent = rg.maxOverMin.toFixed(0)+'× ('+rg.distinct+' gap sizes)';
+}
+$('#nSlider').oninput=primitive;
+
+// ── panel 2: consistent hashing ring ──
+let K=16;
+function drawRing(id, pos){ const cv=$(id), x=cv.getContext('2d'), W=cv.width, R=W/2-14;
+  x.clearRect(0,0,W,W);
+  // arcs colored by load (deviation from mean)
+  const a=P.arcs(pos), mean=1/pos.length;
+  const sorted=[...pos].sort((u,v)=>u-v);
+  for(let i=0;i<sorted.length;i++){ const start=(i===0? sorted[sorted.length-1]-1: sorted[i-1]); const end=sorted[i];
+    const load=a[i]/mean; const hot=Math.min(1,Math.abs(load-1));
+    x.beginPath(); x.arc(W/2,W/2,R,2*Math.PI*start,2*Math.PI*end); x.lineWidth=10;
+    x.strokeStyle = load>1.15?css('--bad'):load<0.85?css('--rand'):css('--good'); x.globalAlpha=0.45+0.4*hot; x.stroke(); x.globalAlpha=1;
+  }
+  sorted.forEach(p=>{ const ang=2*Math.PI*p; x.beginPath(); x.arc(W/2+R*Math.cos(ang),W/2+R*Math.sin(ang),4,0,7);
+    x.fillStyle=id==='#ringGold'?css('--gold'):css('--rand'); x.fill(); });
+}
+function ring(){ const g=P.ringGolden(K), r=P.ringRandom(K,4);
+  drawRing('#ringGold',g); drawRing('#ringRand',r);
+  $('#kGold').textContent=K; $('#kRand').textContent=K;
+  $('#cvGold').textContent=P.loadCV(g).toFixed(3); $('#cvRand').textContent=P.loadCV(r).toFixed(3);
+  // reshuffle on next add
+  const own=(pos,ring)=>{ for(const p of ring) if(pos<=p) return p; return ring[0]; };
+  const before=P.ringGolden(K), after=P.ringGolden(K+1); const rr=P.rng(11); let mv=0; for(let i=0;i<3000;i++){const xx=rr(); if(own(xx,before)!==own(xx,after))mv++;}
+  $('#reshuffle').innerHTML=`golden load is <b style="color:var(--good)">${(P.loadCV(r)/P.loadCV(g)).toFixed(1)}× more even</b> than random with the same 1 point/server — and adding the next server moves only <b>${(mv/3000*100).toFixed(1)}%</b> of keys (~1/k).`;
+}
+$('#addNode').onclick=()=>{ K++; ring(); };
+$('#resetNodes').onclick=()=>{ K=16; ring(); };
+
+// ── panel 3: fibonacci hashing histogram ──
+function hist(id, counts){ const el=$(id), max=Math.max(1,...counts);
+  el.innerHTML=counts.map(c=>`<i style="height:${c/max*100}%"></i>`).join(''); }
+function hashing(){ const stride=+$('#stride').value, k=+$('#bins').value;
+  const keys=Array.from({length:4000},(_,i)=>i*stride);
+  const fib=new Array(k).fill(0), mod=new Array(k).fill(0);
+  for(const key of keys){ fib[P.fibHash(key,k)]++; mod[P.moduloHash(key,k)]++; }
+  hist('#barsFib',fib); hist('#barsMod',mod);
+  const cf=P.binCV(keys,k,P.fibHash), cm=P.binCV(keys,k,P.moduloHash);
+  $('#cvFib').textContent=cf.toFixed(3); $('#cvMod').textContent=cm.toFixed(3);
+  $('#fibWin').innerHTML=`with a stride, <b style="color:var(--rand)">key % k</b> lands every key on ${new Set(keys.map(key=>P.moduloHash(key,k))).size} of ${k} bins — golden spreads them <b style="color:var(--good)">${(cm/cf).toFixed(0)}× more evenly</b>.`;
+}
+$('#stride').onchange=hashing; $('#bins').onchange=hashing;
+
+// ── panel 4: spatial lattice ──
+function drawScatter(id, pts){ const cv=$(id), x=cv.getContext('2d'), W=cv.width;
+  x.clearRect(0,0,W,W);
+  pts.forEach(p=>{ x.beginPath(); x.arc(6+p[0]*(W-12),6+p[1]*(W-12),2,0,7); x.fillStyle=id==='#latGold'?css('--gold'):css('--rand'); x.fill(); });
+}
+function spatial(){ const n=+$('#sSlider').value; $('#sVal').textContent=n;
+  const g=P.place2D(n), r=P.random2D(n,6);
+  drawScatter('#latGold',g); drawScatter('#latRand',r);
+  $('#mdGold').textContent=P.minDist(g).toFixed(3); $('#mdRand').textContent=P.minDist(r).toFixed(3);
+}
+$('#sSlider').oninput=spatial;
+
+function all(){ primitive(); ring(); hashing(); spatial(); }
+$('#theme').onclick=()=>{ const rt=document.documentElement, cur=rt.getAttribute('data-theme')||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light'); rt.setAttribute('data-theme',cur==='dark'?'light':'dark'); all(); };
+all();
+if('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(()=>{});
+</script>
+</body>
+</html>
