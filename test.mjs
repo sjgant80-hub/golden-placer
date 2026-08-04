@@ -4,7 +4,8 @@
 // placement, temporal scheduling. Deterministic. Honest scope encoded: "even" is bounded-variance, not zero.
 import P from './placer.mjs';
 const { threeGap, sequence1D, discrepancy, ringGolden, ringRandom, loadCV, arcs, fibHash, moduloHash, binCV,
-  place2D, random2D, placeSphere, minDist, sphereBandCV, spreadTime, peakLoad, rng, PHI, GOLDEN_ANGLE_DEG } = P;
+  place2D, random2D, placeSphere, minDist, sphereBandCV, spreadTime, peakLoad, rng, PHI, GOLDEN_ANGLE_DEG,
+  reshuffleFrac, fnv, G } = P;
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { c ? pass++ : fail++; console.log((c ? '  ✓ ' : '  ✗ FAIL ') + m); };
@@ -81,6 +82,34 @@ console.log('\n=== §7 · HONEST SCOPE + DETERMINISM + FUZZ ===');
   try { threeGap(sequence1D(1)); minDist(place2D(1)); binCV([], 4, fibHash); binCV([NaN, 'x', 1e30, -5], 8, fibHash); loadCV(ringGolden(1)); place2D(0); placeSphere(0); fibHash('any', 1); } catch { threw = true; }
   ok(!threw, 'degenerate inputs (n=1, empty, garbage keys, k=1) never throw');
   ok(fibHash('anything', 8) >= 0 && fibHash('anything', 8) < 8 && Number.isInteger(fibHash(12345, 8)), 'the hash always returns a valid bin in [0,k)');
+}
+
+console.log('\n=== §8 · BOUNDARY PINS — exported functions pinned on the exact mutated boundary (proof-of-play, no theatre) ===');
+{
+  const near = (a, b, t = 1e-9) => Number.isFinite(a) && Math.abs(a - b) < t;
+  // G is the whole primitive. G→PHI+1 shifts it by exactly 2, which is INVISIBLE to every frac()/angle test
+  // (frac(n·(G+2)) = frac(n·G) for integer n; cos(θ+2π·2n)=cos θ) — so pin G's VALUE directly.
+  ok(near(G, 0.6180339887498949, 1e-12), `G = 1/φ pinned to its exact value (${f(G, 6)}); a +2 shift is invisible to placement but caught here`);
+  // threeGap distinct-count boundary: two gaps exactly `tol` apart must count as DISTINCT (< tol, not <= tol).
+  ok(threeGap([0, 0.5, 0.75], 0.25).distinct === 2, 'threeGap: gaps exactly tol apart count as 2 distinct (the < vs <= boundary in the distinct-collector)');
+  // threeGap.maxGap must be the LAST (largest) sorted gap = g[len-1], not g[len+1] (undefined).
+  ok(near(threeGap([0, 0.5, 0.75]).maxGap, 0.5, 1e-12), 'threeGap.maxGap is the largest gap g[len-1]=0.5 (pins the −1 index)');
+  // discrepancy upper-corner term is (i+1)/n, not (i−1)/n.
+  ok(near(discrepancy([0.5]), 0.5, 1e-12), 'discrepancy([0.5])=0.5 pins the (i+1)/n star-discrepancy corner term');
+  // rng seed guard: `(seed>>>0) || 1` — distinct nonzero seeds MUST give distinct streams (|| not &&).
+  ok(rng(1)() !== rng(2)(), 'rng: different seeds → different streams (the ||1 zero-guard, not &&1 which collapses every seed to 1)');
+  // reshuffleFrac pins the internal moved() loop-count, the !== owner-change test, and the k+1 grown ring — all at once.
+  ok(near(reshuffleFrac(ringGolden, 4), 0.2345, 1e-5), `reshuffleFrac(ringGolden,4)=0.2345 pins moved() sample-count, owner-CHANGE (!==) and the k+1 grown ring (got ${f(reshuffleFrac(ringGolden, 4), 5)})`);
+  // fnv fixed test vector — pins the hash loop bound (an extra NaN round changes the digest).
+  ok(fnv('golden-placer') === 3982579280, 'fnv("golden-placer")=3982579280 fixed vector pins the string-hash loop bound');
+  // fixed-length placement outputs: exactly N points (loop `< N`, not `<= N`).
+  ok(place2D(5).length === 5 && random2D(5, 1).length === 5 && placeSphere(5).length === 5, 'place2D/random2D/placeSphere return exactly N points (pins the `i < N` loop bounds)');
+  // placeSphere z-formula: z = 1 − (2i+1)/N ⇒ z(i=0,N=1)=0, not 1−(2i−1)/N=2.
+  ok(near(placeSphere(1)[0][2], 0, 1e-12), 'placeSphere first z = 1−(2·0+1)/1 = 0 (pins the +1 in the z formula)');
+  // sphereBandCV band clamp: a pole point (z=1) must clamp to band bands−1, not overflow to band bands (→NaN).
+  ok(near(sphereBandCV([[0, 0, 1]], 12), Math.sqrt(11), 1e-9), 'sphereBandCV clamps the z=1 pole to band bands−1 (finite √11), not bands (out-of-range → NaN)');
+  // peakLoad occupancy is a strict `d < width`: a task exactly `width` away does NOT overlap.
+  ok(peakLoad([0, 0.5], 0.5, 1) === 1, 'peakLoad: a task exactly `width` away does not overlap (strict d<width, not d<=width)');
 }
 
 const done = fail === 0;

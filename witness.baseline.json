@@ -1,0 +1,12 @@
+[
+  {
+    "mutation": "<= → <",
+    "snippet": "function owner(pos, ring) { for (const p of ring) if (pos <= p) return p; return ring[0]; ",
+    "reason": "owner() is an internal helper reached ONLY through moved()'s continuous rng() float sampling (never exported, never fed a chosen pos). <= vs < differ only when a sampled x EXACTLY equals a ring node position — probability zero for floats — so moved()/reshuffleFrac() output is identical. Provably no observable change."
+  },
+  {
+    "mutation": "< → <=",
+    "snippet": "export function minDist(pts) { let m = Infinity; for (let i = 0; i < pts.length; i++) for ",
+    "reason": "This is the OUTER loop bound `for(let i=0;i<pts.length;i++)`. Flipping to <= adds one iteration i=pts.length whose INNER loop `for(let j=i+1;j<pts.length;j++)` starts at j=pts.length+1 and never executes, so pts[i] (undefined) is never dereferenced and no distance is computed. minDist returns the identical value. (The inner j< and c< flips on this line are both KILLED — they throw / return NaN.)"
+  }
+]
